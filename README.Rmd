@@ -1,0 +1,19 @@
+---
+# title: "Dynamic FWI calculation from weather stations"
+# date: "16/01/2025"
+always_allow_html: true
+output:
+  github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+----------------------------------------
+### **Dynamic FWI calculation from weather stations**
+
+🚧  Work in Progress 🚧
+
+

@@ -1,0 +1,266 @@
+---
+title: "Fire weather index based on all available stations"
+output:
+  html_document: default
+---
+
+```{r Knitr_setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE, 
+  message = FALSE,
+  error =FALSE,
+  fig.dim = c(8, 4)
+  )
+```
+
+```{r R_setup}
+rm(list=ls(all=TRUE))  #remove all objects (from other sessions)
+library(zoo)
+library(lubridate)
+library(tidyverse)
+library(plotly)
+library(knitr)
+library(vroom)
+library("cffdrs") # El paquete para calcular fwi
+
+```
+
+
+
+
+### Annotations  
+- In order to keep the graphs readable, we only show the most recent four weeks  
+- Update interval: One hour (with a timelag of ~15 minutes due to data transfer and processing time)
+
+### Download fwi-data 
+
+(in case your browser only displays the data instead of downloading the data try right click & "save as")  
+[fwi all stations](https://wwwuser.gwdg.de/~logplanteco/RawData/fwi2025/fwiAllStations.csv) 
+
+```{r loadData}
+
+datos <- vroom("/home/romina/Descargas/FWI_WeatherStations/Data_Input/WStn_03_WeathDat60min.dat",
+                    skip = 0) %>% 
+  drop_na(TS)%>% 
+  mutate(
+    Datetime = TS,
+    ) %>% 
+  select(
+    stationName,
+    Datetime,
+    airTemperature,
+    rh,
+    windSpeed,
+    rain
+  ) %>% 
+  filter(
+    rain >= 0
+  )
+
+```
+```{r prepare_colums_for_function_fwi}
+# PREPARAR COLUMNAS PARA FUNCIÓN FWI ---------------------------------------------
+# Wind Speed a Km/h
+datos$wskmh <- datos$windSpeed * 3.6
+
+
+# Columna Datetime
+# (already done on-the-fly by zoom)
+# datos$Datetime <- as.POSIXct(
+#   paste(datos$Fecha, sprintf("%02d:00:00", datos$Hora)), 
+#   format = "%Y-%m-%d %H:%M:%S")
+
+# Calcular rain24hs a partir de rain
+datos$rain24hs <- round(rollsumr(datos$rain, k = 23, fill = 0),3)
+
+# Columna yr, mon y day
+datos$yr <- as.numeric(format(datos$Datetime, "%Y"))  # Año
+datos$mon <- as.numeric(format(datos$Datetime, "%m")) # Mes
+datos$day <- as.numeric(format(datos$Datetime, "%d")) # Día
+
+# Agrega columna LAT LONG
+datos$lat <- "-41"
+datos$long <- "-71"
+
+# Dataframe final
+col_order <- c("stationName", "lat", "long", "yr", "mon", "day", "airTemperature", "rh", "wskmh", "rain24hs")
+datos_fwi <- datos[, col_order]
+colnames(datos_fwi) <- c("id",  "lat", "long", "yr", "mon", "day", "temp", "rh", "ws", "prec")
+
+rm(col_order)
+
+```
+
+```{r calculate_fwi_with_cffdrs}
+# CALCULO FWI CON cffdrs -------------------------------------------------
+## (1) FWI System variables for a single weather station:
+# Using the default initial values and batch argument,
+# the function calculate FWI variables chronically:
+
+fwi <- tibble()
+stations <- unique(datos_fwi$id)
+
+for(station in stations) {
+  tmpDat <- datos_fwi %>% 
+    filter(
+    id == station
+  )
+  
+#tmpFwi <- datos_fwi(tmpDat, init = c(ffmc = 85, dmc = 6, dc = 15, lat = -41), batch = TRUE)
+tmpFwi <- fwi(tmpDat, init = c(ffmc = 85, dmc = 6, dc = 15, lat = -41), batch = TRUE)
+fwi <- fwi %>% 
+  mutate_if(is.numeric, round, digits=3)
+
+fwi <- rbind(fwi, tmpFwi)
+}
+
+rm(datos_fwi)
+```
+
+
+```{r reformat_and_output_fwi_csv}
+## Guardar .CSV de FWI con fecha
+# Adecuar el dataframe
+fwi$Datetime <- datos$Datetime
+fwi$DIA <- as.numeric(format(fwi$Datetime, "%d"))
+fwi$MES <- as.numeric(format(fwi$Datetime, "%m"))
+fwi$HORA <- as.numeric(format(fwi$Datetime, "%H"))
+
+fwi <- fwi %>% select(ID, LAT, LONG, Datetime, DIA, MES, HORA,
+                      TEMP, RH, WS, PREC,
+                      FFMC, DMC, DC, ISI, BUI, FWI, DSR)
+
+timestamp <- format(Sys.time(), "%Y-%m-%d_%H")
+timestamp <- paste0(timestamp, "hs")
+file_name <- paste0("FWI_", timestamp, ".csv")
+
+write_csv2(fwi, "./Output/fwiAllStations.csv")
+#write_csv2(fwi, paste0("Y:/www/RawData/fwi2025/", file_name))
+
+
+rm(file_name, timestamp)
+```
+
+
+```{r analysis}
+## ANALISIS ------------------------------------------------------------------
+# Seleccionar un rango de fechas de interés
+#desde <- as.POSIXct("2024-12-01 00:00:00")
+hasta <- now()
+desde <- now() - ddays(28) # four weeks
+
+fwi_filter <- fwi %>%
+  filter(Datetime >= desde, Datetime <= hasta)
+```
+
+
+```{r graph_fwi_and_Tair_vs_time}
+# GRAFICO TEMP y FWI vs Fecha 
+g <- ggplot(fwi_filter, aes(x = Datetime)) +
+  geom_area(aes(y = TEMP, fill = "Temperatura"), stat = "identity") +
+  geom_line(aes(y = FWI, color = "FWI"), size = 0.5) +
+  
+  scale_y_continuous(name = "FWI / °C") +
+  scale_x_datetime(name = "", date_labels = "%d/%m/%y", date_breaks = "1 days") +
+ 
+  scale_fill_manual(values = c("Temperatura" = "peachpuff"), name = "") +
+  scale_color_manual(values = c("FWI" = "red"), name = "") +
+  
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top" 
+  ) +
+  ggtitle("FWI / Temperatura") +
+  facet_grid(rows = vars(ID))
+
+
+ggplotly(g)
+```
+
+
+```{r graph_fwi_and_precip_vs_time}
+# GRAFICO  PRECIP y FWI vs Fecha 
+g <- ggplot(fwi_filter, aes(x = Datetime)) +
+  geom_area(aes(y = PREC, fill = "Precip 24hs"), stat = "identity") +
+  geom_line(aes(y = FWI, color = "FWI"), size = 0.5) +
+  
+  scale_y_continuous(name = "FWI / mm") +
+  scale_x_datetime(name = "", date_labels = "%d/%m/%y", date_breaks = "1 days") +
+  
+  scale_fill_manual(values = c("Precip 24hs" = "#7AC5CD"), name = "") +
+  scale_color_manual(values = c("FWI" = "red"), name = "") +
+  
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top" 
+  ) +
+  ggtitle("FWI / Precip 24hs")+
+  facet_grid(rows = vars(ID))
+
+
+ggplotly(g)
+```
+
+```{r define_danger_categories}
+### CATEGORÍAS DE FWI 
+# Crear escala de peligro
+fwi_filter <- fwi_filter %>%
+  mutate(FWI_class = case_when(
+    FWI < 5.2 ~ "Very low danger",
+    FWI >= 5.2 & FWI < 11.2 ~ "Low danger",
+    FWI >= 11.2 & FWI < 21.3 ~ "Moderate danger",
+    FWI >= 21.3 & FWI < 38.0 ~ "High danger",
+    FWI >= 38.0 & FWI <= 50.0 ~ "Very high danger",
+    FWI > 50 ~ "Extreme danger"
+  ))
+
+# Ponerle orden jerárquico
+fwi_filter$FWI_class <- factor(fwi_filter$FWI_class, 
+                               levels = c("Very low danger", "Low danger", 
+                                          "Moderate danger", "High danger", 
+                                          "Very high danger", "Extreme danger"))
+```
+
+
+```{r graph_fwi_with_categories_vs_time}
+# GRAFICO  CATEGORIA FWI vs Fecha 
+ g <- ggplot(fwi_filter, aes(x = Datetime, y = FWI, fill = FWI_class)) +
+  geom_col() +  
+  scale_fill_manual(values = c(
+    "Very low danger" = "#00FF00",  
+    "Low danger" = "#FFFF00",       
+    "Moderate danger" = "#FFA500",  
+    "High danger" = "#FF0000",      
+    "Very high danger" = "#B22222", 
+    "Extreme danger" = "#8B0000"))  + 
+  
+  scale_x_datetime(name = "", date_labels = "%d/%m/%y", date_breaks = "1 days") +
+  theme_minimal() +  
+  labs(
+    title = "Categoría FWI a lo largo del tiempo",
+    x = "Tiempo",
+    y = "FWI",
+    fill = "Clase"  
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top") +
+  facet_grid(rows = vars(ID))
+
+ggplotly(g)
+```
+
+
+
+
+
+
+
+
+
