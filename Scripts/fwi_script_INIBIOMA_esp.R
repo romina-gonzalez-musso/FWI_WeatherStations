@@ -7,25 +7,31 @@ library("plotly")
 library("cffdrs") # El paquete para calcular fwi
 
 # CARGAR DATOS .XLSX O .CSV -------------------------------------------------------
-raw_data <- read.csv("./Data_Input/Inibioma_Manso_Inferior_31-1-2025.csv", skip = 1)
+raw_data_ing <- read.csv("./Data_Input/Inibioma_Manso_Inferior_31-1-2025.csv", skip = 1)
+raw_data_esp <- read.csv("./Data_Input/Inibioma_Manso_Inferior_1-2-2025.csv", skip = 1)
+
+# Reemplazar nombres de columnas en raw_data_ing con los de raw_data_esp
+names(raw_data_ing) <- names(raw_data_esp)
+raw_data <- rbind(raw_data_ing, raw_data_esp)
+rm(raw_data_ing, raw_data_esp)
 
 # Seleccionar columnas de interés 
-datos <- raw_data %>% select(Date.Time..GMT.03.00, 
+datos <- raw_data %>% select(Fecha.Tiempo..GMT.03.00, 
                              Temp...C..LGR.S.N..20210973..SEN.S.N..20215229., 
-                             RH.....LGR.S.N..20210973..SEN.S.N..20215229., 
-                             Wind.Speed..m.s..LGR.S.N..20210973..SEN.S.N..20203022.,
-                             Rain..mm..LGR.S.N..20210973..SEN.S.N..20219452.,
-                             Gust.Speed..m.s..LGR.S.N..20210973..SEN.S.N..20203022.,
-                             Wind.Direction..ø..LGR.S.N..20210973..SEN.S.N..20203073.)
+                             HR.....LGR.S.N..20210973..SEN.S.N..20215229., 
+                             Velocidad.del.viento..m.s..LGR.S.N..20210973..SEN.S.N..20203022.,
+                             Lluvia..mm..LGR.S.N..20210973..SEN.S.N..20219452.,
+                             Velocidad.de.Ráfagas..m.s..LGR.S.N..20210973..SEN.S.N..20203022.,
+                             Dirección.del.viento..ø..LGR.S.N..20210973..SEN.S.N..20203073.)
 
 
 # PREPARAR COLUMNAS PARA FUNCIÓN FWI ---------------------------------------------
-# Wind Speed a Km/h
-datos$WindSpeed <- datos$Wind.Speed..m.s..LGR.S.N..20210973..SEN.S.N..20203022. * 3.6
-datos$GustSpeed <- datos$Gust.Speed..m.s..LGR.S.N..20210973..SEN.S.N..20203022. * 3.6
+# Wind Speed de m/s a Km/h
+datos$WindSpeed <- datos$Velocidad.del.viento..m.s..LGR.S.N..20210973..SEN.S.N..20203022. * 3.6
+datos$GustSpeed <- datos$Velocidad.de.Ráfagas..m.s..LGR.S.N..20210973..SEN.S.N..20203022. * 3.6
 
 # Columna Datetime
-datos$Datetime <- as.POSIXct(datos$Date.Time..GMT.03.00, 
+datos$Datetime <- as.POSIXct(datos$Fecha.Tiempo..GMT.03.00, 
                              format = "%m/%d/%y %I:%M:%S %p", tz = "UTC")
 # Columna yr, mon y day
 datos$yr <- as.numeric(format(datos$Datetime, "%Y"))  # Año
@@ -33,21 +39,20 @@ datos$mon <- as.numeric(format(datos$Datetime, "%m")) # Mes
 datos$day <- as.numeric(format(datos$Datetime, "%d")) # Día
 
 # Agrega columna LAT LONG
-datos$lat <- "-41"
-datos$long <- "-71"
+datos$lat <- "-41 36 16"
+datos$long <- "-71 32 28.5"
 
 # Calcular rain24hs a partir de rain
-datos$rain24hs <- round(rollsumr(datos$Rain..mm..LGR.S.N..20210973..SEN.S.N..20219452., k = 23, fill = 0),3)
+datos$rain24hs <- round(rollsumr(datos$Lluvia..mm..LGR.S.N..20210973..SEN.S.N..20219452., k = 23, fill = 0),3)
 
 # Datos finales
 datos_fwi <- datos %>% 
   select(lat, long, yr, mon, day,
                               Temp...C..LGR.S.N..20210973..SEN.S.N..20215229., 
-                              RH.....LGR.S.N..20210973..SEN.S.N..20215229.,
-                              WindSpeed, rain24hs) %>%
-  
+                              HR.....LGR.S.N..20210973..SEN.S.N..20215229.,
+         WindSpeed, rain24hs) %>%
   rename(temp = Temp...C..LGR.S.N..20210973..SEN.S.N..20215229., 
-         rh = RH.....LGR.S.N..20210973..SEN.S.N..20215229., 
+         rh = HR.....LGR.S.N..20210973..SEN.S.N..20215229., 
          prec = rain24hs,
          ws = WindSpeed)
 
@@ -86,7 +91,7 @@ timestamp <- format(Sys.time(), "%Y-%m-%d_%H")
 timestamp <- paste0(timestamp, "hs")
 file_name <- paste0("FWI_INIBIOMA_", timestamp, ".csv")
 
-fwi$WindDirection <- datos$Wind.Direction..ø..LGR.S.N..20210973..SEN.S.N..20203073.
+fwi$WindDirection <- datos$Dirección.del.viento..ø..LGR.S.N..20210973..SEN.S.N..20203073.
 fwi$GustSpeed <- datos$GustSpeed
 
 write_csv2(fwi, paste0("./Output/", file_name))
