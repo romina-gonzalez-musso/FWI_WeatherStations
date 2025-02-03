@@ -8,7 +8,7 @@ library("cffdrs") # El paquete para calcular fwi
 
 # CARGAR DATOS .XLSX O .CSV -------------------------------------------------------
 raw_data_ing <- read.csv("./Data_Input/Inibioma_Manso_Inferior_31-1-2025.csv", skip = 1)
-raw_data_esp <- read.csv("./Data_Input/Inibioma_Manso_Inferior_1-2-2025.csv", skip = 1)
+raw_data_esp <- read.csv("./Data_Input/Inibioma_Manso_Inferior_3-2-2025.csv", skip = 1)
 
 # Reemplazar nombres de columnas en raw_data_ing con los de raw_data_esp
 names(raw_data_ing) <- names(raw_data_esp)
